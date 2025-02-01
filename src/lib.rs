@@ -1,4 +1,5 @@
 use combinators::{AndThen, Many, Map, OrElse};
+use errors::CombinedParsersError;
 
 pub mod parsers;
 pub mod errors;
@@ -131,5 +132,22 @@ pub trait Parser: Sized {
         Many {
             p: self
         }
+    }
+
+    fn then_consume<P>(self, other: P) -> 
+    impl Parser<
+        Input = Self::Input, 
+        Output = Self::Output,
+        Error = 
+            CombinedParsersError<
+                Self::Error,
+                P::Error
+            >
+    > 
+    where
+        P: Parser<Input = Self::Input>,
+    {
+        self.and_then(other)
+            .map(|(output, _)| output)
     }
 }

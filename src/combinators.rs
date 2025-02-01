@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use crate::{errors::AndThenError, Parser};
+use crate::{errors::CombinedParsersError, Parser};
 
 pub struct AndThen<P1, P2> {
     pub(crate) p1: P1,
@@ -14,7 +14,7 @@ where
 {
     type Input = P1::Input;
     type Output = (P1::Output, P2::Output);
-    type Error = AndThenError<P1::Error, P2::Error>;
+    type Error = CombinedParsersError<P1::Error, P2::Error>;
 
     fn parse(&self, input: Self::Input) -> crate::ParserResult<Self::Input, Self::Output, Self::Error> {
         let Self {
@@ -25,13 +25,13 @@ where
         parser1
             .parse(input)
             .map_err(|error| 
-                AndThenError::FirstFailed(error)
+                CombinedParsersError::FirstFailed(error)
             )
             .and_then(|rest, output| 
                 parser2.parse(rest)
                     .map_out(|out2| (output, out2))
                     .map_err(|error| 
-                        AndThenError::SecondFailed(error)
+                        CombinedParsersError::SecondFailed(error)
                     )
             )
     }

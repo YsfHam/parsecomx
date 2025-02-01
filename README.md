@@ -22,7 +22,7 @@ The trait will contain one mandatory method for parsing, and other methods for e
 
 [X] Many -> apply the parser as much as possible return a list of parsed elements
 
-- ThenConsume -> same as AndThen but ignores the result of the second parser
+[X] ThenConsume -> same as AndThen but ignores the result of the second parser
 
 - ThenParse -> same as AndThen but ignores the result of the first parser
 

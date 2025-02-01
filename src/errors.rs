@@ -1,5 +1,5 @@
 #[derive(Debug)]
-pub enum AndThenError<E1, E2> {
+pub enum CombinedParsersError<E1, E2> {
     FirstFailed(E1),
     SecondFailed(E2)
 }
