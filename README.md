@@ -20,7 +20,7 @@ The trait will contain one mandatory method for parsing, and other methods for e
 
 [X] Map -> apply a function to the result of a parser
 
-- Many -> apply the parser as much as possible return a list of parsed elements
+[X] Many -> apply the parser as much as possible return a list of parsed elements
 
 - ThenConsume -> same as AndThen but ignores the result of the second parser
 
