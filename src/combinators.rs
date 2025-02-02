@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+
 
 use crate::{errors::CombinedParsersError, Parser};
 
@@ -22,18 +22,26 @@ where
             p2: parser2
         } = self;
 
-        parser1
+        let apply_p2 
+        = |(rest, output)|
+            parser2.parse(rest)
+            .map_err(|(input, error)|
+                (input, CombinedParsersError::SecondFailed(error))
+            )
+            .map(|(rest, output2)|
+                (rest, (output, output2))
+            )
+        ;
+
+        let apply_p1 = ||
+            parser1
             .parse(input)
-            .map_err(|error| 
-                CombinedParsersError::FirstFailed(error)
+            .map_err(|(input, error)| 
+                (input, CombinedParsersError::FirstFailed(error))
             )
-            .and_then(|rest, output| 
-                parser2.parse(rest)
-                    .map_out(|out2| (output, out2))
-                    .map_err(|error| 
-                        CombinedParsersError::SecondFailed(error)
-                    )
-            )
+        ;
+
+        apply_p1().and_then(apply_p2)
     }
 }
 
@@ -56,8 +64,10 @@ where
         self
         .p1
         .parse(input)
-        .or_else(|input| self.p2.parse(input))
-        .map_err(Into::into)
+        .or_else(|(input, _)|self.p2.parse(input))
+        .map_err(|(input, error)|
+            (input, error.into())
+        )
     }
 }
 
@@ -78,7 +88,9 @@ where
     fn parse(&self, input: Self::Input) -> crate::ParserResult<Self::Input, Self::Output, Self::Error> {
         self.p
             .parse(input)
-            .map_out(|out| (self.mapper)(out))
+            .map(|(rest, output)| 
+                (rest, (self.mapper)(output))
+            )
     }
 }
 
@@ -90,25 +102,58 @@ impl<P> Parser for Many<P>
 where P: Parser
 {
     type Input = P::Input;
-    type Output = VecDeque<P::Output>;
+    type Output = Vec<P::Output>;
     type Error = P::Error;
 
     fn parse(&self, input: Self::Input) -> crate::ParserResult<Self::Input, Self::Output, Self::Error> {
-        let parse_rec = 
-        |this: &Self, rest: Self::Input, output: P::Output| {
-            this.parse(rest)
-                .map_out(|mut many_out| {
-                    many_out.push_front(output);
-                    many_out
-                })
-        };
-        
-        self.p.parse(input)
-            .and_then(|rest, output|
-                parse_rec(self, rest, output)
-            )
-            .or_else(|input| 
-                crate::ParserResult::success(input, VecDeque::new())
-            )
+        let mut result = Vec::new();
+
+        let mut current_input = input;
+        loop {
+            match self.p.parse(current_input) {
+                Ok((rest, output)) => {
+                    result.push(output);
+                    current_input = rest;
+                }
+                Err((rest, _)) => {
+                    return Ok((
+                        rest,
+                        result
+                    ))
+                }
+            }
+        }
+    }
+}
+
+pub struct ParseIf<P, Pred, EFn> {
+    pub(crate) p: P,
+    pub(crate) pred: Pred,
+    pub(crate) error: EFn
+}
+
+impl<P, Pred, EFn> Parser for ParseIf<P, Pred, EFn> 
+where
+    P: Parser,
+    P::Input: Clone,
+
+    Pred: Fn(&P::Output) -> bool,
+    EFn: Fn(&P::Output) -> P::Error
+{
+    type Input = P::Input;
+    type Output = P::Output;
+    type Error = P::Error;
+
+    fn parse(&self, input: Self::Input) -> crate::ParserResult<Self::Input, Self::Output, Self::Error> {
+        self.p
+        .parse(input.clone())
+        .and_then(|(rest, output)| {
+            if (self.pred)(&output) {
+                Ok((rest, output))
+            }
+            else {
+                Err((input, (self.error)(&output)))
+            }
+        })
     }
 }

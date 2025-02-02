@@ -26,4 +26,4 @@ The trait will contain one mandatory method for parsing, and other methods for e
 
 [X] ThenParse -> same as AndThen but ignores the result of the first parser
 
-- ParseIf -> takes a predicate and fallback error if the predicate is false
+[X] ParseIf -> takes a predicate and fallback error if the predicate is false

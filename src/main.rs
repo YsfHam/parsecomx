@@ -1,22 +1,14 @@
-use parsecomx::{parsers, Parser, ParserResult};
+use parsecomx::{parsers, Parser};
 
 fn main() {
 
-    let input = "               h        ello";
+    let input = "hello world";
 
-    let ParserResult {
-        rest,
-        out_result
-    } = 
-    parsers::parse_char(' ')
-        .many()
-        .then_parse(parsers::parse_char('h'))
-        .then_consume(parsers::parse_char(' ').many())
-        .and_then(parsers::parse_char('e'))
-        .parse(input);
+    let result = 
+        parsers::any_char()
+        .and_then(parsers::parse_char('h'))
+        .parse(input)
+    ;
 
-    match out_result {
-        Ok(output) => println!("{:?}", (output, rest)),
-        Err(error) => println!("{:?}", error)
-    }
+    println!("{result:?}");
 }
