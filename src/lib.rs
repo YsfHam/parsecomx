@@ -150,4 +150,22 @@ pub trait Parser: Sized {
         self.and_then(other)
             .map(|(output, _)| output)
     }
+
+
+    fn then_parse<P>(self, other: P) -> 
+    impl Parser<
+        Input = Self::Input, 
+        Output = P::Output,
+        Error = 
+            CombinedParsersError<
+                Self::Error,
+                P::Error
+            >
+    > 
+    where
+        P: Parser<Input = Self::Input>,
+    {
+        self.and_then(other)
+            .map(|(_, output)| output)
+    }
 }
