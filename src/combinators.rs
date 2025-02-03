@@ -192,6 +192,23 @@ where
 
 pub struct Optional<P> (pub(crate) P);
 
+impl<P> Optional<P> 
+where P: Parser
+{
+    pub fn then_continue_with<OtherP>(self, other: OtherP) -> 
+    impl Parser<
+        Input = P::Input, 
+        Output = OtherP::Output,
+        Error = OtherP::Error
+    > 
+    where
+        OtherP: Parser<Input = P::Input, Error = P::Error>, 
+    {
+        self.then_parse(other)
+        .map_err(CombinedParsersError::unwrap_error)
+    }
+}
+
 impl<P> Parser for Optional<P> 
 where
     P: Parser
@@ -233,28 +250,45 @@ pub struct SepBy<P, SepP> {
     pub(crate) separator: SepP
 }
 
+impl<P, SepP> SepBy<P, SepP> 
+where
+    P: Parser,
+    SepP: Parser<Input = P::Input, Error = P::Error>
+{
+    fn parse_sep_start(&self, input: P::Input, mut result: Vec<P::Output>) -> (P::Input, Vec<P::Output>) {
+        let mut current_input = input;
+        loop {
+            let parse_result = self.separator.parse(current_input)
+            .and_then(|(rest, _)| self.p.parse(rest));
+
+            match parse_result {
+                Ok((rest, output)) => {
+                    current_input = rest;
+                    result.push(output)
+                }
+                Err((input, _)) => return (input, result)
+            }
+        }
+    }
+}
+
 impl<P, SepP> Parser for SepBy<P, SepP> 
 where
     P: Parser,
-    SepP: Parser<Input = P::Input, Output = P::Output, Error = P::Error>
+    SepP: Parser<Input = P::Input, Error = P::Error>
 {
     type Input = P::Input;
     type Output = Vec<P::Output>;
     type Error = P::Error;
 
     fn parse(&self, input: Self::Input) -> crate::ParserResult<Self::Input, Self::Output, Self::Error> {
-        self.p
-        .parse(input)
-        .and_then(|(rest, first)| {
-            collect_many_with_index(
-                &[&self.separator, &self.p],
-                1,
-                rest
-            )
-            .map(|(rest, mut result) | {
-                result.push(first);
-                (rest, result)
-            })
+        let mut result = Vec::new();
+
+
+        self.p.parse(input)
+        .and_then(|(rest, output)|{
+            result.push(output);
+            Ok(self.parse_sep_start(rest, result))
         })
     }
 }

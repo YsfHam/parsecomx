@@ -50,11 +50,7 @@ impl Parser<
     .parse_if(move |c| c.is_digit(radix), |c| StringParsingError::UnexpectedChar(*c))
     .many1()
     .map( move |digits| 
-        digits
-        .iter().fold(sign_str.to_string(), |mut acc, d| {
-            acc.push(*d);
-            acc
-        })
+        concat_chars(digits, sign_str.to_string())
     )
 }
 
@@ -80,6 +76,22 @@ impl Parser<
     .optional()
     .flat_map(move |minus| number_str_parser(radix, minus.is_some()))
     .map(move |number| N::from_str(&number, radix).unwrap())
+}
+
+pub fn whitespaces_parser() -> 
+impl Parser<
+    Input = &'static str,
+    Output = String,
+    Error = StringParsingError
+>
+{
+    any_char()
+    .parse_if(
+        |c| c.is_whitespace(), 
+    |c| StringParsingError::UnexpectedChar(*c)
+    )
+    .many()
+    .map(|ws| concat_chars(ws, "".to_string()))
 }
 
 struct AnyChar;
@@ -117,4 +129,12 @@ impl Parser for StringParser {
             Err((input, StringParsingError::UnexpectedString(input)))
         }
     }
+}
+
+fn concat_chars(chars_list: Vec<char>, prefix: String) -> String {
+    chars_list
+    .iter().fold(prefix, |mut acc, d| {
+        acc.push(*d);
+        acc
+    })
 }

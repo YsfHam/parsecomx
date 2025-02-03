@@ -27,7 +27,7 @@ pub trait Parser {
     {
         AndThen { p1: self, p2: other }
     }
-
+    
     fn or_else<P>(self, other: P) -> OrElse<Self, P> 
     where
         Self: Sized,
@@ -150,9 +150,23 @@ pub trait Parser {
     fn sep_by<SepP>(self, separator: SepP) -> SepBy<Self, SepP>
     where
         Self: Sized,
-        SepP: Parser<Input = Self::Input, Output = Self::Output, Error = Self::Error>
+        SepP: Parser<Input = Self::Input, Error = Self::Error>
     {
         SepBy { p: self, separator }
+    }
+
+    fn then_consume_optional<P>(self, optional_p: Optional<P>) ->
+    impl Parser<
+        Input = Self::Input, 
+        Output = Self::Output,
+        Error = Self::Error
+    > 
+    where
+        Self: Sized,
+        P: Parser<Input = Self::Input, Error = Self::Error>
+    {
+        self.then_consume(optional_p)
+        .map_err(CombinedParsersError::unwrap_error)
     }
 }
 
