@@ -2,13 +2,13 @@ use parsecomx::{parsers, Parser};
 
 fn main() {
 
-    let input = "hello world";
+    let input = "-1234";
 
     let result = 
-        parsers::any_char()
-        .and_then(parsers::parse_char('h'))
+        parsers::int_parser::<i32>(10)
         .parse(input)
     ;
+
 
     println!("{result:?}");
 }
