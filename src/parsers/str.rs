@@ -20,9 +20,17 @@ impl Parser<
 >
 {
     any_char()
-    .parse_if( 
-        move |c| *c == expected, 
-        |c| StringParsingError::UnexpectedChar(*c))
+    .parse_if( move |c| {
+        if *c == expected {
+            Ok(())
+        }
+        else {
+            Err(Some(StringParsingError::UnexpectedChar(*c)))
+        }
+    })
+    .map_err(|error|
+        unsafe {error.unwrap_unchecked()}
+    )
 }
 
 pub fn string_parser(expected: &'static str) -> 
@@ -47,7 +55,17 @@ impl Parser<
     let sign_str = if signed {"-"} else {""};
 
     any_char()
-    .parse_if(move |c| c.is_digit(radix), |c| StringParsingError::UnexpectedChar(*c))
+    .parse_if(move |c|{
+        if c.is_digit(radix) {
+            Ok(())
+        }
+        else {
+            Err(Some(StringParsingError::UnexpectedChar(*c)))
+        }
+    })
+    .map_err(|error|
+        unsafe {error.unwrap_unchecked()}
+    )
     .many1()
     .map( move |digits| 
         concat_chars(digits, sign_str.to_string())
@@ -86,9 +104,16 @@ impl Parser<
 >
 {
     any_char()
-    .parse_if(
-        |c| c.is_whitespace(), 
-    |c| StringParsingError::UnexpectedChar(*c)
+    .parse_if(|c| {
+        if c.is_whitespace() {
+            Ok(())
+        }
+        else {
+            Err(Some(StringParsingError::UnexpectedChar(*c)))
+        }
+    })
+    .map_err(|error|
+        unsafe {error.unwrap_unchecked()}
     )
     .many()
     .map(|ws| concat_chars(ws, "".to_string()))

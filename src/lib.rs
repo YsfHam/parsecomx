@@ -111,17 +111,15 @@ pub trait Parser {
             .map(|(_, output)| output)
     }
 
-    fn parse_if<Pred, EFn>(self, pred: Pred, error: EFn) -> ParseIf<Self, Pred, EFn>
+    fn parse_if<Pred>(self, pred: Pred) -> ParseIf<Self, Pred>
     where
         Self: Sized,
-        Pred: Fn(&Self::Output) -> bool,
-        EFn: Fn(&Self::Output) -> Self::Error,
+        Pred: Fn(&Self::Output) -> Result<(), Option<Self::Error>>,
         Self::Input: Clone
     {
         ParseIf {
             p: self,
-            pred,
-            error
+            pred
         }
     }
 
@@ -163,10 +161,15 @@ pub trait Parser {
     > 
     where
         Self: Sized,
-        P: Parser<Input = Self::Input, Error = Self::Error>
+        P: Parser<Input = Self::Input>
     {
         self.then_consume(optional_p)
-        .map_err(CombinedParsersError::unwrap_error)
+        .map_err(|error|
+            match error {
+                CombinedParsersError::FirstFailed(error) => error,
+                CombinedParsersError::SecondFailed(_) => unreachable!(),
+            }
+        )
     }
 }
 

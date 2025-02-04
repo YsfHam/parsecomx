@@ -158,33 +158,30 @@ where P: Parser
     }
 }
 
-pub struct ParseIf<P, Pred, EFn> {
+pub struct ParseIf<P, Pred> {
     pub(crate) p: P,
     pub(crate) pred: Pred,
-    pub(crate) error: EFn
 }
 
-impl<P, Pred, EFn> Parser for ParseIf<P, Pred, EFn> 
+impl<P, Pred> Parser for ParseIf<P, Pred> 
 where
     P: Parser,
     P::Input: Clone,
 
-    Pred: Fn(&P::Output) -> bool,
-    EFn: Fn(&P::Output) -> P::Error
+    Pred: Fn(&P::Output) -> Result<(), Option<P::Error>>,
 {
     type Input = P::Input;
     type Output = P::Output;
-    type Error = P::Error;
+    type Error = Option<P::Error>;
 
     fn parse(&self, input: Self::Input) -> crate::ParserResult<Self::Input, Self::Output, Self::Error> {
         self.p
         .parse(input.clone())
+        .map_err(|(input, error)| (input, Some(error)))
         .and_then(|(rest, output)| {
-            if (self.pred)(&output) {
-                Ok((rest, output))
-            }
-            else {
-                Err((input, (self.error)(&output)))
+            match (self.pred)(&output) {
+                Ok(_) => Ok((rest, output)),
+                Err(e) => Err((input, e)),
             }
         })
     }
@@ -202,10 +199,14 @@ where P: Parser
         Error = OtherP::Error
     > 
     where
-        OtherP: Parser<Input = P::Input, Error = P::Error>, 
+        OtherP: Parser<Input = P::Input>, 
     {
         self.then_parse(other)
-        .map_err(CombinedParsersError::unwrap_error)
+        .map_err(|error| 
+            match error {
+                CombinedParsersError::FirstFailed(_) => unreachable!(),
+                CombinedParsersError::SecondFailed(error) => error,
+            })
     }
 }
 
