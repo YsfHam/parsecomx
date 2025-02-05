@@ -14,7 +14,7 @@ pub enum StringTokenType {
 }
 
 pub(crate) fn parse_many<P: Parser>(parser: &P, input: P::Input) 
-    -> ParserResult<P::Input, Vec<P::Output>, P::Error>
+    -> (P::Input, Vec<P::Output>)
 {
     let mut result = Vec::new();
     let mut current_input = input;
@@ -26,7 +26,7 @@ pub(crate) fn parse_many<P: Parser>(parser: &P, input: P::Input)
                 current_input = rest;
             }
             Err((input, _)) => {
-                return Ok((input, result))
+                return (input, result)
             }
         }
     }

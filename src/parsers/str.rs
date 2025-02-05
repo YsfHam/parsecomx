@@ -1,4 +1,4 @@
-use crate::{errors::StringParsingError, traits::{SignedNumber, UnsignedNumber}, parsers::Parser};
+use crate::{errors::StringParsingError, parsers::Parser, traits::{Float, SignedInteger, UnsignedInteger}};
 
 use super::{ParserResult, StringTokenType};
 
@@ -85,7 +85,7 @@ impl Parser<
     )
 }
 
-pub fn uint_parser<'a, N: UnsignedNumber>(radix: u32) -> 
+pub fn uint_parser<'a, N: UnsignedInteger>(radix: u32) -> 
 impl Parser<
     Input = &'a str,
     Output = N::Inner,
@@ -99,7 +99,7 @@ impl Parser<
     )
 }
 
-pub fn int_parser<'a, N: SignedNumber>(radix: u32) -> 
+pub fn int_parser<'a, N: SignedInteger>(radix: u32) -> 
 impl Parser<
     Input = &'a str,
     Output = N::Inner,
@@ -115,11 +115,41 @@ impl Parser<
     )
 }
 
+pub fn float_parser<'a, F: Float>() ->
+impl Parser<
+    Input = &'a str,
+    Output = F::Inner,
+    Error = StringParsingError<'a>
+>
+{
+    let int_part =
+        char_parser('-') 
+        .optional()
+        .flat_map(move |minus| number_str_parser(10, minus.is_some()))
+        .optional()
+    ;
+
+    let decimal_part =
+        char_parser('.')
+        .then_parse_same_error(number_str_parser(10, false))
+        .optional()
+    ;
+    int_part.and_then_same_error(decimal_part)
+    .map_result(|(int_part, decimal_part)|
+        F::from_str(&(
+            int_part.unwrap_or("".to_string()) + 
+            "." + 
+            &decimal_part.unwrap_or("".to_string())
+        ))
+        .map_err(|_| StringParsingError::InvalidFloat)
+    )
+}
+
 pub fn whitespaces_parser<'a>() -> 
 impl Parser<
     Input = &'a str,
     Output = String,
-    Error = StringParsingError<'a>
+    Error = ()
 >
 {
     any_char()
@@ -131,9 +161,6 @@ impl Parser<
             Err(None)
         }
     })
-    .map_err(|error|
-        unsafe {error.unwrap_unchecked()}
-    )
     .many()
     .map(|ws| concat_chars(ws, "".to_string()))
 }

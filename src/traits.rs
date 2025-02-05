@@ -1,4 +1,4 @@
-use std::num::ParseIntError;
+use std::num::{ParseFloatError, ParseIntError};
 use crate::{combinators::*, errors::CombinedParsersError, parsers::ParserResult};
 
 pub trait Parser {
@@ -14,6 +14,20 @@ pub trait Parser {
         P: Parser
     {
         AndThen { p1: self, p2: other }
+    }
+
+    fn and_then_same_error<P>(self, other: P) -> 
+    impl Parser<
+        Input = Self::Input, 
+        Output = (Self::Output, P::Output),
+        Error = Self::Error
+    > 
+    where
+        Self: Sized,
+        P: Parser<Input = Self::Input, Error = Self::Error>,
+    {
+        self.and_then(other)
+            .map_err(CombinedParsersError::unwrap_error)
     }
     
     fn or_else<P>(self, other: P) -> OrElse<Self, P> 
@@ -91,6 +105,20 @@ pub trait Parser {
             .map(|(output, _)| output)
     }
 
+    fn then_consume_same_error<P>(self, other: P) -> 
+    impl Parser<
+        Input = Self::Input, 
+        Output = Self::Output,
+        Error = Self::Error
+    > 
+    where
+        Self: Sized,
+        P: Parser<Input = Self::Input, Error = Self::Error>,
+    {
+        self.and_then_same_error(other)
+            .map(|(output, _)| output)
+    }
+
 
     fn then_parse<P>(self, other: P) -> 
     impl Parser<
@@ -107,6 +135,20 @@ pub trait Parser {
         P: Parser<Input = Self::Input>,
     {
         self.and_then(other)
+            .map(|(_, output)| output)
+    }
+
+    fn then_parse_same_error<P>(self, other: P) -> 
+    impl Parser<
+        Input = Self::Input, 
+        Output = P::Output,
+        Error = Self::Error
+    > 
+    where
+        Self: Sized,
+        P: Parser<Input = Self::Input, Error = Self::Error>,
+    {
+        self.and_then_same_error(other)
             .map(|(_, output)| output)
     }
 
@@ -147,7 +189,7 @@ pub trait Parser {
     fn sep_by<SepP>(self, separator: SepP) -> SepBy<Self, SepP>
     where
         Self: Sized,
-        SepP: Parser<Input = Self::Input, Error = Self::Error>
+        SepP: Parser<Input = Self::Input>
     {
         SepBy { p: self, separator }
     }
@@ -172,11 +214,17 @@ pub trait Parser {
     }
 }
 
-pub trait Number {
+pub trait Integer {
     type Inner;
 
     fn from_str(src: &str, radix: u32) -> Result<Self::Inner, ParseIntError>;
 }
 
-pub trait UnsignedNumber: Number {}
-pub trait SignedNumber: Number {}
+pub trait UnsignedInteger: Integer {}
+pub trait SignedInteger: Integer {}
+
+pub trait Float {
+    type Inner;
+
+    fn from_str(src: &str) -> Result<Self::Inner, ParseFloatError>;
+}

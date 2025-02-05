@@ -160,8 +160,9 @@ where P: Parser
 
     fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
         self.p.parse(input)
-            .and_then(|(rest, output)|
-                parse_many(&self.p, rest)
+            .map_or_else(|error| Err(error),
+            |(rest, output)|
+                Ok(parse_many(&self.p, rest))
                 .map(|(rest, mut result)|{
                     result.insert(0, output);
                     (rest, result)
@@ -180,10 +181,10 @@ where P: Parser
 {
     type Input = P::Input;
     type Output = Vec<P::Output>;
-    type Error = P::Error;
+    type Error = ();
 
     fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
-        parse_many(&self.p, input)
+        Ok(parse_many(&self.p, input))
     }
 }
 
@@ -283,19 +284,23 @@ pub struct SepBy<P, SepP> {
 impl<P, SepP> SepBy<P, SepP> 
 where
     P: Parser,
-    SepP: Parser<Input = P::Input, Error = P::Error>
+    SepP: Parser<Input = P::Input>
 {
     fn parse_sep_start(&self, input: P::Input, mut result: Vec<P::Output>) -> (P::Input, Vec<P::Output>) {
         let mut current_input = input;
         loop {
             let parse_result = self.separator.parse(current_input)
-            .and_then(|(rest, _)| self.p.parse(rest));
+            .map_or_else(|error| Err(error),
+            |(rest, _)|
+                Ok(self.p.parse(rest))
+            );
 
             match parse_result {
-                Ok((rest, output)) => {
+                Ok(Ok((rest, output))) => {
                     current_input = rest;
                     result.push(output)
-                }
+                },
+                Ok(Err((input, _))) |
                 Err((input, _)) => return (input, result)
             }
         }
@@ -305,7 +310,7 @@ where
 impl<P, SepP> Parser for SepBy<P, SepP> 
 where
     P: Parser,
-    SepP: Parser<Input = P::Input, Error = P::Error>
+    SepP: Parser<Input = P::Input>
 {
     type Input = P::Input;
     type Output = Vec<P::Output>;

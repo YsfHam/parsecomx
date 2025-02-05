@@ -21,7 +21,8 @@ pub enum StringParsingError<'a> {
     UnexpectedChar{expected: char, found: char},
     UnexpectedString{expected: &'a str, found: &'a str},
     UnexpectedCharType{found: char, expected_type: StringTokenType},
-    NumberOverflow
+    NumberOverflow,
+    InvalidFloat
 }
 
 #[derive(Debug)]
