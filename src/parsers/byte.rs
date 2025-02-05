@@ -1,4 +1,6 @@
-use crate::{errors::BytesParsingError, Parser};
+use crate::{errors::BytesParsingError, parsers::Parser};
+
+use super::ParserResult;
 
 pub fn parse_bytes<'a>(count: usize) ->
 impl Parser<
@@ -24,7 +26,7 @@ impl<'a> Parser for GetBytes<'a> {
     type Output = &'a [u8];
     type Error = BytesParsingError;
 
-    fn parse(&self, input: Self::Input) -> crate::ParserResult<Self::Input, Self::Output, Self::Error> {
+    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
         if input.len() > self.bytes_count {
             Ok((
                 &input[self.bytes_count..],

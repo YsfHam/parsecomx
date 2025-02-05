@@ -14,16 +14,62 @@ The trait will contain one mandatory method for parsing, and other methods for e
 
 ## Combinators
 
-[X] AndThen -> takes two parser, apply the input to the first one and the rest to the second and return both of them
+### AndThen
 
-[X] OrElse -> when the first parser fails, we take the result of the second parser
+This combinator takes two parsers as arguments.
+It applies the input to the first and the rest to the other, the returns a tuple of the results
 
-[X] Map -> apply a function to the result of a parser
+### OrElse
 
-[X] Many -> apply the parser as much as possible return a list of parsed elements
+Takes two parsers. If the first fails, it tries the second
 
-[X] ThenConsume -> same as AndThen but ignores the result of the second parser
+### Map
 
-[X] ThenParse -> same as AndThen but ignores the result of the first parser
+Maps the result of the parser
 
-[X] ParseIf -> takes a predicate and fallback error if the predicate is false
+### MapError
+
+Maps the error when the parser fails
+
+### MapResult
+
+Maps the result of the parser to a result, then flatten it
+
+### Many1
+
+Applies the parser as much as possible and returns a list of the parsed elements. At least one element is parsed.
+
+### Many
+
+Applies the parser as much as possible and returns a list of the parsed elements. It never fails!
+
+### ThenConsume
+
+Takes two parsers, and ignores the result of the second parser
+
+### ThenParse
+
+Takes two parsers, and ignores the result of the first parser
+
+### ParseIf
+
+Takes a predicate which returns a result and an error.
+When the predicate returns false the parser fails.
+
+### Optional
+
+Returns an option of the parser's result.
+If the parser succeded returns Some(result)
+Otherwise returns None.
+
+### Flatten
+
+Flats the parser result when it is a parser.
+
+### FlatMap
+
+This is equivalent to parser.map(f).flatten()
+
+### SepBy
+
+Takes a parser as a separator and returns a list of the parsed elements that are separated by the result of the second element

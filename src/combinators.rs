@@ -1,6 +1,10 @@
 
 
-use crate::{errors::CombinedParsersError, collect_many_with_index, Parser};
+use crate::{
+    errors::CombinedParsersError,
+    parsers::{parse_many, ParserResult},
+    traits::Parser,
+};
 
 pub struct AndThen<P1, P2> {
     pub(crate) p1: P1,
@@ -16,7 +20,7 @@ where
     type Output = (P1::Output, P2::Output);
     type Error = CombinedParsersError<P1::Error, P2::Error>;
 
-    fn parse(&self, input: Self::Input) -> crate::ParserResult<Self::Input, Self::Output, Self::Error> {
+    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
         let Self {
             p1: parser1,
             p2: parser2
@@ -60,7 +64,7 @@ where
     type Output = P1::Output;
     type Error = P1::Error;
 
-    fn parse(&self, input: Self::Input) -> crate::ParserResult<Self::Input, Self::Output, Self::Error> {
+    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
         self
         .p1
         .parse(input)
@@ -85,7 +89,7 @@ where
     type Output = R;
     type Error = P::Error;
 
-    fn parse(&self, input: Self::Input) -> crate::ParserResult<Self::Input, Self::Output, Self::Error> {
+    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
         self.p
             .parse(input)
             .map(|(rest, output)| 
@@ -108,7 +112,7 @@ where
     type Output = P::Output;
     type Error = R;
 
-    fn parse(&self, input: Self::Input) -> crate::ParserResult<Self::Input, Self::Output, Self::Error> {
+    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
         self.p
             .parse(input)
             .map_err(|(input, error)| 
@@ -117,6 +121,31 @@ where
     }
 }
 
+pub struct MapResult<P, F> {
+    pub(crate) p: P,
+    pub(crate) result_mapper: F
+}
+
+impl<P, F, O, E> Parser for MapResult<P, F> 
+where
+    P: Parser<Error = E>,
+    P::Input: Clone,
+    F: Fn(P::Output) -> Result<O, E>
+{
+    type Input = P::Input;
+    type Output = O;
+    type Error = E;
+
+    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
+        self.p
+            .parse(input.clone())
+            .and_then(|(rest, output)|
+                (self.result_mapper)(output)
+                .map(|output| (rest, output))
+                .map_err(|error| (input, error))
+            )
+    }
+}
 
 pub struct Many1<P> {
     pub(crate) p: P
@@ -129,10 +158,10 @@ where P: Parser
     type Output = Vec<P::Output>;
     type Error = P::Error;
 
-    fn parse(&self, input: Self::Input) -> crate::ParserResult<Self::Input, Self::Output, Self::Error> {
+    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
         self.p.parse(input)
             .and_then(|(rest, output)|
-                collect_many_with_index(&[&self.p], 0, rest)
+                parse_many(&self.p, rest)
                 .map(|(rest, mut result)|{
                     result.insert(0, output);
                     (rest, result)
@@ -153,8 +182,8 @@ where P: Parser
     type Output = Vec<P::Output>;
     type Error = P::Error;
 
-    fn parse(&self, input: Self::Input) -> crate::ParserResult<Self::Input, Self::Output, Self::Error> {
-        collect_many_with_index(&[&self.p], 0, input)
+    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
+        parse_many(&self.p, input)
     }
 }
 
@@ -174,7 +203,7 @@ where
     type Output = P::Output;
     type Error = Option<P::Error>;
 
-    fn parse(&self, input: Self::Input) -> crate::ParserResult<Self::Input, Self::Output, Self::Error> {
+    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
         self.p
         .parse(input.clone())
         .map_err(|(input, error)| (input, Some(error)))
@@ -218,7 +247,7 @@ where
     type Output = Option<P::Output>;
     type Error = P::Error;
 
-    fn parse(&self, input: Self::Input) -> crate::ParserResult<Self::Input, Self::Output, Self::Error> {
+    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
         self.0.parse(input)
         .map_or_else(
             |(input, _)| Ok((input, None)),
@@ -238,7 +267,7 @@ where
     type Output = <P::Output as Parser>::Output;
     type Error = P::Error;
 
-    fn parse(&self, input: Self::Input) -> crate::ParserResult<Self::Input, Self::Output, Self::Error> {
+    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
         self.0.parse(input)
         .and_then(|(rest, p)|
             p.parse(rest)
@@ -282,7 +311,7 @@ where
     type Output = Vec<P::Output>;
     type Error = P::Error;
 
-    fn parse(&self, input: Self::Input) -> crate::ParserResult<Self::Input, Self::Output, Self::Error> {
+    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
         let mut result = Vec::new();
 
 

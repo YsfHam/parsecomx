@@ -1,3 +1,5 @@
+use crate::parsers::StringTokenType;
+
 #[derive(Debug)]
 pub enum CombinedParsersError<E1, E2> {
     FirstFailed(E1),
@@ -14,10 +16,12 @@ impl<E> CombinedParsersError<E, E> {
 }
 
 #[derive(Debug)]
-pub enum StringParsingError {
+pub enum StringParsingError<'a> {
     UnexpectedEnd,
-    UnexpectedChar(char),
-    UnexpectedString(&'static str),
+    UnexpectedChar{expected: char, found: char},
+    UnexpectedString{expected: &'a str, found: &'a str},
+    UnexpectedCharType{found: char, expected_type: StringTokenType},
+    NumberOverflow
 }
 
 #[derive(Debug)]
