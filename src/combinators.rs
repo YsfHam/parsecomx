@@ -58,20 +58,16 @@ impl<P1, P2> Parser for OrElse<P1, P2>
 where
     P1: Parser,
     P2: Parser<Input = P1::Input, Output = P1::Output>,
-    P2::Error: Into<P1::Error>
 {
     type Input = P1::Input;
-    type Output = P1::Output;
-    type Error = P1::Error;
+    type Output = P2::Output;
+    type Error = P2::Error;
 
     fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
         self
         .p1
         .parse(input)
         .or_else(|(input, _)|self.p2.parse(input))
-        .map_err(|(input, error)|
-            (input, error.into())
-        )
     }
 }
 

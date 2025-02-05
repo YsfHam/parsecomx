@@ -131,10 +131,10 @@ impl Parser<
 
     let decimal_part =
         char_parser('.')
-        .then_parse_same_error(number_str_parser(10, false))
+        .then_parse_unwrap_error(number_str_parser(10, false))
         .optional()
     ;
-    int_part.and_then_same_error(decimal_part)
+    int_part.and_then_unwrap_error(decimal_part)
     .map_result(|(int_part, decimal_part)|
         F::from_str(&(
             int_part.unwrap_or("".to_string()) + 
@@ -148,7 +148,7 @@ impl Parser<
 pub fn whitespaces_parser<'a>() -> 
 impl Parser<
     Input = &'a str,
-    Output = String,
+    Output = (),
     Error = ()
 >
 {
@@ -162,7 +162,51 @@ impl Parser<
         }
     })
     .many()
-    .map(|ws| concat_chars(ws, "".to_string()))
+    .map(|_| ())
+}
+
+pub fn string_literal_parser<'a>() -> 
+impl Parser<
+    Input = &'a str,
+    Output = String,
+    Error = StringParsingError<'a>
+>
+{
+    // EscapeExpr -> \ then "
+    let escape_expr =
+        char_parser('\\')
+        .then_parse(char_parser('"'))
+        .or_else(char_parser('n').map(|_| '\n'))
+        .or_else(char_parser('t').map(|_| '\t'))
+        .or_else(char_parser('r').map(|_| '\r'))
+    ;
+
+    // character -> any char except " or \ | EscapeExpr
+    let character = 
+        any_char()
+        .parse_if(|c|
+            if *c != '"' && *c != '\\' {
+                Ok(())
+            }
+            else {
+                Err(None)
+            }
+        )
+        .or_else(escape_expr)
+    ;
+    // chracters -> many character
+    let characters = 
+        character
+        .many()
+        .map(|chars| String::from_iter(chars))
+    ;
+
+    // literal -> "chracters"
+    char_parser('"')
+    .then_parse(characters)
+    .map_err(|error| unsafe {error.first_error().unwrap_unchecked()})
+    .then_consume_unwrap_error(char_parser('"'))
+    
 }
 
 struct AnyChar<'a> {

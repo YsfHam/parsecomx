@@ -16,7 +16,7 @@ pub trait Parser {
         AndThen { p1: self, p2: other }
     }
 
-    fn and_then_same_error<P>(self, other: P) -> 
+    fn and_then_unwrap_error<P>(self, other: P) -> 
     impl Parser<
         Input = Self::Input, 
         Output = (Self::Output, P::Output),
@@ -105,7 +105,7 @@ pub trait Parser {
             .map(|(output, _)| output)
     }
 
-    fn then_consume_same_error<P>(self, other: P) -> 
+    fn then_consume_unwrap_error<P>(self, other: P) -> 
     impl Parser<
         Input = Self::Input, 
         Output = Self::Output,
@@ -115,7 +115,7 @@ pub trait Parser {
         Self: Sized,
         P: Parser<Input = Self::Input, Error = Self::Error>,
     {
-        self.and_then_same_error(other)
+        self.and_then_unwrap_error(other)
             .map(|(output, _)| output)
     }
 
@@ -138,7 +138,7 @@ pub trait Parser {
             .map(|(_, output)| output)
     }
 
-    fn then_parse_same_error<P>(self, other: P) -> 
+    fn then_parse_unwrap_error<P>(self, other: P) -> 
     impl Parser<
         Input = Self::Input, 
         Output = P::Output,
@@ -148,7 +148,7 @@ pub trait Parser {
         Self: Sized,
         P: Parser<Input = Self::Input, Error = Self::Error>,
     {
-        self.and_then_same_error(other)
+        self.and_then_unwrap_error(other)
             .map(|(_, output)| output)
     }
 
