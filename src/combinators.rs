@@ -1,5 +1,3 @@
-
-
 use crate::{
     errors::CombinedParsersError,
     parsers::{parse_many, ParserResult},
@@ -14,11 +12,11 @@ pub struct AndThen<P1, P2> {
 impl<P1, P2> Parser for AndThen<P1, P2>
 where
     P1: Parser,
-    P2: Parser<Input = P1::Input>
+    P2: Parser<Input = P1::Input, Error = P1::Error>
 {
     type Input = P1::Input;
     type Output = (P1::Output, P2::Output);
-    type Error = CombinedParsersError<P1::Error, P2::Error>;
+    type Error = P1::Error;
 
     fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
         let Self {
@@ -29,9 +27,6 @@ where
         let apply_p2 
         = |(rest, output)|
             parser2.parse(rest)
-            .map_err(|(input, error)|
-                (input, CombinedParsersError::SecondFailed(error))
-            )
             .map(|(rest, output2)|
                 (rest, (output, output2))
             )
@@ -40,9 +35,6 @@ where
         let apply_p1 = ||
             parser1
             .parse(input)
-            .map_err(|(input, error)| 
-                (input, CombinedParsersError::FirstFailed(error))
-            )
         ;
 
         apply_p1().and_then(apply_p2)
@@ -177,7 +169,7 @@ where P: Parser
 {
     type Input = P::Input;
     type Output = Vec<P::Output>;
-    type Error = ();
+    type Error = P::Error;
 
     fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
         Ok(parse_many(&self.p, input))
@@ -227,12 +219,14 @@ where P: Parser
     where
         OtherP: Parser<Input = P::Input>, 
     {
-        self.then_parse(other)
+        self
+        .map_err(|error| CombinedParsersError::FirstFailed(error))
+        .then_parse(
+            other.map_err(|error| CombinedParsersError::SecondFailed(error))
+        )
         .map_err(|error| 
-            match error {
-                CombinedParsersError::FirstFailed(_) => unreachable!(),
-                CombinedParsersError::SecondFailed(error) => error,
-            })
+            unsafe {error.second_error().unwrap_unchecked()}
+        )
     }
 }
 
@@ -250,6 +244,7 @@ where
             |(input, _)| Ok((input, None)),
             |(rest, output)| Ok((rest, Some(output)))
         )
+
     }
 }
 

@@ -1,5 +1,5 @@
 use std::num::{ParseFloatError, ParseIntError};
-use crate::{combinators::*, errors::CombinedParsersError, parsers::ParserResult};
+use crate::{combinators::*, errors::{CombinedParsersError, StringParsingError}, parsers::{float_parser, ParserResult}};
 
 pub trait Parser {
     type Input;
@@ -14,20 +14,6 @@ pub trait Parser {
         P: Parser
     {
         AndThen { p1: self, p2: other }
-    }
-
-    fn and_then_unwrap_error<P>(self, other: P) -> 
-    impl Parser<
-        Input = Self::Input, 
-        Output = (Self::Output, P::Output),
-        Error = Self::Error
-    > 
-    where
-        Self: Sized,
-        P: Parser<Input = Self::Input, Error = Self::Error>,
-    {
-        self.and_then(other)
-            .map_err(CombinedParsersError::unwrap_error)
     }
     
     fn or_else<P>(self, other: P) -> OrElse<Self, P> 
@@ -91,31 +77,13 @@ pub trait Parser {
     impl Parser<
         Input = Self::Input, 
         Output = Self::Output,
-        Error = 
-            CombinedParsersError<
-                Self::Error,
-                P::Error
-            >
-    > 
-    where
-        Self: Sized,
-        P: Parser<Input = Self::Input>,
-    {
-        self.and_then(other)
-            .map(|(output, _)| output)
-    }
-
-    fn then_consume_unwrap_error<P>(self, other: P) -> 
-    impl Parser<
-        Input = Self::Input, 
-        Output = Self::Output,
         Error = Self::Error
     > 
     where
         Self: Sized,
         P: Parser<Input = Self::Input, Error = Self::Error>,
     {
-        self.and_then_unwrap_error(other)
+        self.and_then(other)
             .map(|(output, _)| output)
     }
 
@@ -124,31 +92,13 @@ pub trait Parser {
     impl Parser<
         Input = Self::Input, 
         Output = P::Output,
-        Error = 
-            CombinedParsersError<
-                Self::Error,
-                P::Error
-            >
-    > 
-    where
-        Self: Sized,
-        P: Parser<Input = Self::Input>,
-    {
-        self.and_then(other)
-            .map(|(_, output)| output)
-    }
-
-    fn then_parse_unwrap_error<P>(self, other: P) -> 
-    impl Parser<
-        Input = Self::Input, 
-        Output = P::Output,
         Error = Self::Error
     > 
     where
         Self: Sized,
         P: Parser<Input = Self::Input, Error = Self::Error>,
     {
-        self.and_then_unwrap_error(other)
+        self.and_then(other)
             .map(|(_, output)| output)
     }
 
@@ -202,29 +152,50 @@ pub trait Parser {
     > 
     where
         Self: Sized,
-        P: Parser<Input = Self::Input>
+        P: Parser<Input = Self::Input, Error = Self::Error>
     {
-        self.then_consume(optional_p)
-        .map_err(|error|
-            match error {
-                CombinedParsersError::FirstFailed(error) => error,
-                CombinedParsersError::SecondFailed(_) => unreachable!(),
-            }
+        self
+        .map_err(|error| CombinedParsersError::FirstFailed(error))
+        .then_consume(
+            optional_p
+            .map_err(|error| CombinedParsersError::SecondFailed(error))
+        )
+        .map_err(|error| 
+            unsafe {error.first_error().unwrap_unchecked()}
         )
     }
 }
 
-pub trait Integer {
+pub trait Number {
     type Inner;
-
-    fn from_str(src: &str, radix: u32) -> Result<Self::Inner, ParseIntError>;
 }
 
-pub trait UnsignedInteger: Integer {}
-pub trait SignedInteger: Integer {}
+pub trait Integer: Number {
+    fn from_str(src: &str, radix: u32) -> Result<Self::Inner, ParseIntError>;
+}
+pub trait Unsigned {}
+pub trait Signed {}
+mod not_signed {
+    pub trait NotSigned {} 
+}
 
-pub trait Float {
-    type Inner;
+impl<T: not_signed::NotSigned> Signed for T {}
+impl<T: Unsigned> not_signed::NotSigned for T {}
 
+pub trait ParseableInteger<'a>: Integer {
+    fn str_parser(radix: u32) -> impl Parser<Input = &'a str, Output = Self::Inner, Error = StringParsingError<'a>>;
+}
+
+pub trait Float: Number {
     fn from_str(src: &str) -> Result<Self::Inner, ParseFloatError>;
+}
+
+pub trait FloatParser<'a>: Float {
+    fn str_parser() -> impl Parser<Input = &'a str, Output = Self::Inner, Error = StringParsingError<'a>>;
+}
+
+impl<'a, F: Float> FloatParser<'a> for F {
+    fn str_parser() -> impl Parser<Input = &'a str, Output = Self::Inner, Error = StringParsingError<'a>> {
+        float_parser::<Self>()
+    }
 }
