@@ -285,18 +285,23 @@ where
     fn parse_sep_start(&self, input: P::Input, mut result: Vec<P::Output>) -> (P::Input, Vec<P::Output>) {
         let mut current_input = input;
         loop {
-            let parse_result = self.separator.parse(current_input)
-            .map_or_else(|error| Err(error),
-            |(rest, _)|
-                Ok(self.p.parse(rest))
-            );
+            let parse_result = 
+                self.separator.parse(current_input)
+                .map_err(|(input, error)| 
+                    (input, CombinedParsersError::FirstFailed(error))
+                )
+                .and_then(|(rest, _)|
+                    self.p.parse(rest)
+                    .map_err(|(input, error)|
+                        (input, CombinedParsersError::SecondFailed(error))
+                    )   
+                );
 
             match parse_result {
-                Ok(Ok((rest, output))) => {
+                Ok((rest, output)) => {
                     current_input = rest;
                     result.push(output)
                 },
-                Ok(Err((input, _))) |
                 Err((input, _)) => return (input, result)
             }
         }
