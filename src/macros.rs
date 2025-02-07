@@ -33,7 +33,7 @@ macro_rules! parseable_integers {
             impl crate::traits::Parser<
                 Input = &'a str,
                 Output = Self::Inner,
-                Error = crate::errors::StringParsingError<'a>
+                Error = crate::errors::StrParsingErrors<'a>
             > 
             {
                 $str_parser(radix)

@@ -1,13 +1,13 @@
-use crate::{errors::StringParsingError, parsers::Parser, traits::{Float, Integer, Signed, Unsigned}};
+use crate::{errors::{ParsingError, StrParsingErrorKind, StrParsingErrors}, parsers::Parser, traits::{Float, Integer, Signed, Unsigned}};
 
-use super::{ParserResult, StringTokenType};
+use super::{ParserInput, ParserResult};
 
 
 pub fn any_char<'a>() ->
 impl Parser<
     Input = &'a str,
     Output = char,
-    Error = StringParsingError<'a>
+    Error = StrParsingErrors<'a>
 >
 {
     AnyChar {
@@ -20,32 +20,18 @@ pub(crate) fn char_parser<'a>(expected: char) ->
 impl Parser<
     Input = &'a str,
     Output = char,
-    Error = StringParsingError<'a>
+    Error = StrParsingErrors<'a>
 >
 {
     any_char()
-    .parse_if( move |c| {
-        if *c == expected {
-            Ok(())
-        }
-        else {
-            Err(
-                Some(
-                    StringParsingError::UnexpectedChar{expected, found: *c}
-                )
-            )
-        }
-    })
-    .map_err(|error|
-        unsafe {error.unwrap_unchecked()}
-    )
+    .verify(move |c| *c == expected)
 }
 
 pub(crate) fn string_parser<'a>(expected: &'a str) -> 
 impl Parser<
     Input = &'a str,
     Output = &'a str,
-    Error = StringParsingError
+    Error = StrParsingErrors
 >
 {
     StringParser {
@@ -57,32 +43,26 @@ fn number_str_parser<'a>(radix: u32, signed: bool) ->
 impl Parser<
     Input = &'a str,
     Output = String,
-    Error = StringParsingError<'a>
+    Error = StrParsingErrors<'a>
 >
 {
-    let sign_str = if signed {"-"} else {""};
+    let sign_str = if signed && radix == 10 {"-"} else {""};
 
     any_char()
-    .parse_if(move |c|{
-        if c.is_digit(radix) {
-            Ok(())
-        }
-        else {
-            Err(
-                Some(StringParsingError::UnexpectedCharType { 
-                    found: *c, 
-                    expected_type: StringTokenType::Int
-                })
-            )
-        }
-    })
-    .map_err(|error|
-        unsafe {error.unwrap_unchecked()}
-    )
+    .verify(move |c| c.is_digit(radix))
     .many1()
     .map( move |digits| 
         sign_str.to_string() + &String::from_iter(digits)
     )
+    .map_err(|error| {
+        match error {
+            crate::errors::ParsingErrorKind::VerifyError => 
+                StrParsingErrors::with_error_kind(
+                    StrParsingErrorKind::ExpectingDigit
+                ).into(),
+            crate::errors::ParsingErrorKind::Custom(e) => e,
+        }
+    })
 
 }
 
@@ -90,13 +70,15 @@ pub(crate) fn uint_parser<'a, N: Integer + Unsigned>(radix: u32) ->
 impl Parser<
     Input = &'a str,
     Output = N::Inner,
-    Error = StringParsingError<'a>
+    Error = StrParsingErrors<'a>
 >
 {
     number_str_parser(radix,false)
     .map_result(move |number| 
         N::from_str(&number, radix)
-        .map_err(|_|StringParsingError::NumberOverflow)
+        .map_err(|_| StrParsingErrors::with_error_kind(
+            StrParsingErrorKind::NumberOverflow
+        ).into())
     )
 }
 
@@ -104,15 +86,17 @@ pub(crate) fn int_parser<'a, N: Integer + Signed>(radix: u32) ->
 impl Parser<
     Input = &'a str,
     Output = N::Inner,
-    Error = StringParsingError<'a>
+    Error = StrParsingErrors<'a>
 >
 {
-    '-' // optional
+    '-'
     .optional()
     .flat_map(move |minus| number_str_parser(radix, minus.is_some()))
     .map_result(move |number: String| 
         N::from_str(&number, radix)
-        .map_err(|_|StringParsingError::NumberOverflow)
+        .map_err(|_| StrParsingErrors::with_error_kind(
+            StrParsingErrorKind::NumberOverflow
+        ).into())
     )
 }
 
@@ -120,7 +104,7 @@ pub(crate) fn float_parser<'a, F: Float>() ->
 impl Parser<
     Input = &'a str,
     Output = F::Inner,
-    Error = StringParsingError<'a>
+    Error = StrParsingErrors<'a>
 >
 {
     let int_part =
@@ -142,7 +126,9 @@ impl Parser<
             "." + 
             &decimal_part.unwrap_or("".to_string())
         ))
-        .map_err(|_| StringParsingError::InvalidFloat)
+        .map_err(|_| StrParsingErrors::with_error_kind(
+            StrParsingErrorKind::InvalidFloat
+        ).into())
     )
 }
 
@@ -150,19 +136,11 @@ pub fn whitespaces_parser<'a>() ->
 impl Parser<
     Input = &'a str,
     Output = (),
-    Error = StringParsingError<'a>
+    Error = StrParsingErrors<'a>
 >
 {
     any_char()
-    .parse_if(|c| {
-        if c.is_whitespace() {
-            Ok(())
-        }
-        else {
-            Err(None)
-        }
-    })
-    .map_err(|_| StringParsingError::IgnoredError)
+    .verify(|c| c.is_whitespace())
     .many()
     .map(|_| ())
 }
@@ -171,7 +149,7 @@ pub fn string_literal_parser<'a>() ->
 impl Parser<
     Input = &'a str,
     Output = String,
-    Error = StringParsingError<'a>
+    Error = StrParsingErrors<'a>
 >
 {
     // EscapeExpr -> \ then "
@@ -186,14 +164,7 @@ impl Parser<
     // character -> any char except " or \ | EscapeExpr
     let character = 
         any_char()
-        .parse_if(|c|
-            if *c != '"' && *c != '\\' {
-                Ok(())
-            }
-            else {
-                Err(None)
-            }
-        )
+        .verify(|c| *c != '"' && *c != '\\')
         .or_else(escape_expr)
     ;
     // chracters -> many character
@@ -217,14 +188,29 @@ struct AnyChar<'a> {
 impl<'a> Parser for AnyChar<'a> {
     type Input = &'a str;
     type Output = char;
-    type Error = StringParsingError<'a>;
+    type Error = StrParsingErrors<'a>;
 
-    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
-        let mut chars = input.chars();
+    fn parse(&self, input: ParserInput<Self::Input>) -> ParserResult<Self::Input, Self::Output, Self::Error> {
+        let mut chars = input.data.chars();
+        let input_index = input.index;
         chars.next()
             .map_or(
-                Err((input, StringParsingError::UnexpectedEnd)),
-                |c| Ok((chars.as_str(), c))
+                Err((
+                    input, 
+                    ParsingError {
+                        error: StrParsingErrors::with_error_kind(
+                            StrParsingErrorKind::UnexpectedEnd
+                        ).into(),
+                        index: input_index
+                    }
+                )),
+                |c| Ok((
+                    ParserInput {
+                        data: chars.as_str(),
+                        index: input_index + 1
+                    },
+                    c
+                ))
             )
     }
 }
@@ -237,20 +223,31 @@ struct StringParser<'a> {
 impl<'a> Parser for StringParser<'a> {
     type Input = &'a str;
     type Output = &'a str;
-    type Error = StringParsingError<'a>;
+    type Error = StrParsingErrors<'a>;
 
-    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
-
-        if input.starts_with(self.expected) {
-            Ok((&input[self.expected.len()..], self.expected))
+    fn parse(&self, input: ParserInput<Self::Input>) -> ParserResult<Self::Input, Self::Output, Self::Error> {
+        let data = input.data;
+        let index = input.index;
+        if data.starts_with(self.expected) {
+            Ok((
+                ParserInput {
+                    data: &data[self.expected.len()..],
+                    index: input.index + self.expected.len()
+                }, 
+                self.expected
+            ))
         }
         else {
             Err((
                 input,
-                StringParsingError::UnexpectedString{
-                    expected: &self.expected,
-                    found: &input
+                ParsingError {
+                    error: StrParsingErrors::with_error_kind(StrParsingErrorKind::UnexpectedString{
+                        expected: &self.expected,
+                        found: data
+                    }).into(),
+                    index: index
                 }
+                
             ))
         }
     }
@@ -259,9 +256,9 @@ impl<'a> Parser for StringParser<'a> {
 impl<'a> Parser for &'a char {
     type Input = &'a str;
     type Output = char;
-    type Error = StringParsingError<'a>;
+    type Error = StrParsingErrors<'a>;
 
-    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
+    fn parse(&self, input: ParserInput<Self::Input>) -> ParserResult<Self::Input, Self::Output, Self::Error> {
         char_parser(**self).parse(input)
     }
 }
@@ -269,9 +266,9 @@ impl<'a> Parser for &'a char {
 impl<'a> Parser for &'a str {
     type Input = &'a str;
     type Output = &'a str;
-    type Error = StringParsingError<'a>;
+    type Error = StrParsingErrors<'a>;
 
-    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
+    fn parse(&self, input: ParserInput<Self::Input>) -> ParserResult<Self::Input, Self::Output, Self::Error> {
         string_parser(*self).parse(input)
     }
 }

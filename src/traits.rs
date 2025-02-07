@@ -1,12 +1,19 @@
 use std::num::{ParseFloatError, ParseIntError};
-use crate::{combinators::*, errors::{CombinedParsersError, StringParsingError}, parsers::{float_parser, ParserResult}};
+use crate::{combinators::*, errors::{ParsingErrorKind, StrParsingErrors}, parsers::{float_parser, ParserInput, ParserResult}};
+
+
+pub trait ParserError {
+
+    fn append(self, new: Self) -> Self;
+}
 
 pub trait Parser {
     type Input;
     type Output;
-    type Error;
 
-    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error>;
+    type Error: ParserError;
+
+    fn parse(&self, input: ParserInput<Self::Input>) -> ParserResult<Self::Input, Self::Output, Self::Error>;
 
     fn and_then<P>(self, other: P) -> AndThen<Self, P> 
     where
@@ -38,7 +45,7 @@ pub trait Parser {
     fn map_err<F, R>(self, err_mapper: F) -> MapError<Self, F> 
     where
         Self: Sized,
-        F: Fn(Self::Error) -> R
+        F: Fn(ParsingErrorKind<Self::Error>) -> R
     {
         MapError {
             p: self,
@@ -102,13 +109,13 @@ pub trait Parser {
             .map(|(_, output)| output)
     }
 
-    fn parse_if<Pred>(self, pred: Pred) -> ParseIf<Self, Pred>
+    fn verify<Pred>(self, pred: Pred) -> Verify<Self, Pred>
     where
         Self: Sized,
-        Pred: Fn(&Self::Output) -> Result<(), Option<Self::Error>>,
+        Pred: Fn(&Self::Output) -> bool,
         Self::Input: Clone
     {
-        ParseIf {
+        Verify {
             p: self,
             pred
         }
@@ -143,27 +150,6 @@ pub trait Parser {
     {
         SepBy { p: self, separator }
     }
-
-    fn then_consume_optional<P>(self, optional_p: Optional<P>) ->
-    impl Parser<
-        Input = Self::Input, 
-        Output = Self::Output,
-        Error = Self::Error
-    > 
-    where
-        Self: Sized,
-        P: Parser<Input = Self::Input, Error = Self::Error>
-    {
-        self
-        .map_err(|error| CombinedParsersError::FirstFailed(error))
-        .then_consume(
-            optional_p
-            .map_err(|error| CombinedParsersError::SecondFailed(error))
-        )
-        .map_err(|error| 
-            unsafe {error.first_error().unwrap_unchecked()}
-        )
-    }
 }
 
 pub trait Number {
@@ -183,7 +169,7 @@ impl<T: not_signed::NotSigned> Signed for T {}
 impl<T: Unsigned> not_signed::NotSigned for T {}
 
 pub trait ParseableInteger<'a>: Integer {
-    fn str_parser(radix: u32) -> impl Parser<Input = &'a str, Output = Self::Inner, Error = StringParsingError<'a>>;
+    fn str_parser(radix: u32) -> impl Parser<Input = &'a str, Output = Self::Inner, Error = StrParsingErrors<'a>>;
 }
 
 pub trait Float: Number {
@@ -191,11 +177,11 @@ pub trait Float: Number {
 }
 
 pub trait FloatParser<'a>: Float {
-    fn str_parser() -> impl Parser<Input = &'a str, Output = Self::Inner, Error = StringParsingError<'a>>;
+    fn str_parser() -> impl Parser<Input = &'a str, Output = Self::Inner, Error = StrParsingErrors<'a>>;
 }
 
 impl<'a, F: Float> FloatParser<'a> for F {
-    fn str_parser() -> impl Parser<Input = &'a str, Output = Self::Inner, Error = StringParsingError<'a>> {
+    fn str_parser() -> impl Parser<Input = &'a str, Output = Self::Inner, Error = StrParsingErrors<'a>> {
         float_parser::<Self>()
     }
 }

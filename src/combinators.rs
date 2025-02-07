@@ -1,7 +1,7 @@
 use crate::{
-    errors::CombinedParsersError,
-    parsers::{parse_many, ParserResult},
-    traits::Parser,
+    errors::{EitherError, ParsingError, ParsingErrorKind},
+    parsers::{parse_many, ParserInput, ParserResult},
+    traits::{Parser, ParserError},
 };
 
 pub struct AndThen<P1, P2> {
@@ -12,13 +12,14 @@ pub struct AndThen<P1, P2> {
 impl<P1, P2> Parser for AndThen<P1, P2>
 where
     P1: Parser,
-    P2: Parser<Input = P1::Input, Error = P1::Error>
+    P2: Parser<Input = P1::Input>,
+    P2::Error: Into<P1::Error>
 {
     type Input = P1::Input;
     type Output = (P1::Output, P2::Output);
     type Error = P1::Error;
 
-    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
+    fn parse(&self, input: ParserInput<Self::Input>) -> ParserResult<Self::Input, Self::Output, Self::Error> {
         let Self {
             p1: parser1,
             p2: parser2
@@ -29,6 +30,9 @@ where
             parser2.parse(rest)
             .map(|(rest, output2)|
                 (rest, (output, output2))
+            )
+            .map_err(|(input, error)|
+                (input, error.into())
             )
         ;
 
@@ -50,16 +54,22 @@ impl<P1, P2> Parser for OrElse<P1, P2>
 where
     P1: Parser,
     P2: Parser<Input = P1::Input, Output = P1::Output>,
+    P1::Error: Into<P2::Error>
 {
     type Input = P1::Input;
     type Output = P2::Output;
     type Error = P2::Error;
 
-    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
+    fn parse(&self, input: ParserInput<Self::Input>) -> ParserResult<Self::Input, Self::Output, Self::Error> {
         self
         .p1
         .parse(input)
-        .or_else(|(input, _)|self.p2.parse(input))
+        .or_else(|(input, error)|
+            self.p2.parse(input)
+            .map_err(|(input, error2)|
+                (input, error.into().append(error2))
+            )
+        )
     }
 }
 
@@ -77,7 +87,7 @@ where
     type Output = R;
     type Error = P::Error;
 
-    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
+    fn parse(&self, input: ParserInput<Self::Input>) -> ParserResult<Self::Input, Self::Output, Self::Error> {
         self.p
             .parse(input)
             .map(|(rest, output)| 
@@ -94,18 +104,29 @@ pub struct MapError<P, F> {
 impl<P, F, R> Parser for MapError<P, F> 
 where
     P: Parser,
-    F: Fn(P::Error) -> R
+    F: Fn(ParsingErrorKind<P::Error>) -> R,
+    R: ParserError
 {
     type Input = P::Input;
     type Output = P::Output;
     type Error = R;
 
-    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
+    fn parse(&self, input: ParserInput<Self::Input>) -> ParserResult<Self::Input, Self::Output, Self::Error> {
         self.p
             .parse(input)
-            .map_err(|(input, error)| 
-                (input, (self.err_mapper)(error))
-            )
+            .map_err(|(input, error)| {
+                let ParsingError {
+                    error,
+                    index
+                } = error;
+
+                let new_error = ParsingError {
+                    error: (self.err_mapper)(error).into(),
+                    index
+                };
+
+                (input, new_error)
+            })
     }
 }
 
@@ -118,19 +139,26 @@ impl<P, F, O, E> Parser for MapResult<P, F>
 where
     P: Parser<Error = E>,
     P::Input: Clone,
-    F: Fn(P::Output) -> Result<O, E>
+    F: Fn(P::Output) -> Result<O, E>,
+    E: ParserError,
 {
     type Input = P::Input;
     type Output = O;
     type Error = E;
 
-    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
+    fn parse(&self, input: ParserInput<Self::Input>) -> ParserResult<Self::Input, Self::Output, Self::Error> {
         self.p
             .parse(input.clone())
             .and_then(|(rest, output)|
                 (self.result_mapper)(output)
                 .map(|output| (rest, output))
-                .map_err(|error| (input, error))
+                .map_err(|error| (
+                    input.clone(),
+                    ParsingError {
+                        error: error.into(),
+                        index: input.index
+                    }
+                ))
             )
     }
 }
@@ -146,7 +174,7 @@ where P: Parser
     type Output = Vec<P::Output>;
     type Error = P::Error;
 
-    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
+    fn parse(&self, input: ParserInput<Self::Input>) -> ParserResult<Self::Input, Self::Output, Self::Error> {
         self.p.parse(input)
             .map_or_else(|error| Err(error),
             |(rest, output)|
@@ -171,64 +199,50 @@ where P: Parser
     type Output = Vec<P::Output>;
     type Error = P::Error;
 
-    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
+    fn parse(&self, input: ParserInput<Self::Input>) -> ParserResult<Self::Input, Self::Output, Self::Error> {
         Ok(parse_many(&self.p, input))
     }
 }
 
-pub struct ParseIf<P, Pred> {
+pub struct Verify<P, Pred> {
     pub(crate) p: P,
     pub(crate) pred: Pred,
 }
 
-impl<P, Pred> Parser for ParseIf<P, Pred> 
+impl<P, Pred> Parser for Verify<P, Pred> 
 where
     P: Parser,
     P::Input: Clone,
 
-    Pred: Fn(&P::Output) -> Result<(), Option<P::Error>>,
+    Pred: Fn(&P::Output) -> bool
 {
     type Input = P::Input;
     type Output = P::Output;
-    type Error = Option<P::Error>;
+    type Error = P::Error;
 
-    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
+    fn parse(&self, input: ParserInput<Self::Input>) -> ParserResult<Self::Input, Self::Output, Self::Error> {
         self.p
         .parse(input.clone())
-        .map_err(|(input, error)| (input, Some(error)))
+        .map_err(|(input, error)| (input, error))
         .and_then(|(rest, output)| {
-            match (self.pred)(&output) {
-                Ok(_) => Ok((rest, output)),
-                Err(e) => Err((input, e)),
+            if (self.pred)(&output) {
+                Ok((rest, output))
+            }
+            else {
+                Err((
+                    input.clone(),
+                    ParsingError {
+                        error: ParsingErrorKind::VerifyError,
+                        index: input.index
+                    } 
+                    
+                ))
             }
         })
     }
 }
 
 pub struct Optional<P> (pub(crate) P);
-
-impl<P> Optional<P> 
-where P: Parser
-{
-    pub fn then_continue_with<OtherP>(self, other: OtherP) -> 
-    impl Parser<
-        Input = P::Input, 
-        Output = OtherP::Output,
-        Error = OtherP::Error
-    > 
-    where
-        OtherP: Parser<Input = P::Input>, 
-    {
-        self
-        .map_err(|error| CombinedParsersError::FirstFailed(error))
-        .then_parse(
-            other.map_err(|error| CombinedParsersError::SecondFailed(error))
-        )
-        .map_err(|error| 
-            unsafe {error.second_error().unwrap_unchecked()}
-        )
-    }
-}
 
 impl<P> Parser for Optional<P> 
 where
@@ -238,7 +252,7 @@ where
     type Output = Option<P::Output>;
     type Error = P::Error;
 
-    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
+    fn parse(&self, input: ParserInput<Self::Input>) -> ParserResult<Self::Input, Self::Output, Self::Error> {
         self.0.parse(input)
         .map_or_else(
             |(input, _)| Ok((input, None)),
@@ -259,7 +273,7 @@ where
     type Output = <P::Output as Parser>::Output;
     type Error = P::Error;
 
-    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
+    fn parse(&self, input: ParserInput<Self::Input>) -> ParserResult<Self::Input, Self::Output, Self::Error> {
         self.0.parse(input)
         .and_then(|(rest, p)|
             p.parse(rest)
@@ -272,37 +286,6 @@ pub struct SepBy<P, SepP> {
     pub(crate) separator: SepP
 }
 
-impl<P, SepP> SepBy<P, SepP> 
-where
-    P: Parser,
-    SepP: Parser<Input = P::Input>
-{
-    fn parse_sep_start(&self, input: P::Input, mut result: Vec<P::Output>) -> (P::Input, Vec<P::Output>) {
-        let mut current_input = input;
-        loop {
-            let parse_result = 
-                self.separator.parse(current_input)
-                .map_err(|(input, error)| 
-                    (input, CombinedParsersError::FirstFailed(error))
-                )
-                .and_then(|(rest, _)|
-                    self.p.parse(rest)
-                    .map_err(|(input, error)|
-                        (input, CombinedParsersError::SecondFailed(error))
-                    )   
-                );
-
-            match parse_result {
-                Ok((rest, output)) => {
-                    current_input = rest;
-                    result.push(output)
-                },
-                Err((input, _)) => return (input, result)
-            }
-        }
-    }
-}
-
 impl<P, SepP> Parser for SepBy<P, SepP> 
 where
     P: Parser,
@@ -312,14 +295,35 @@ where
     type Output = Vec<P::Output>;
     type Error = P::Error;
 
-    fn parse(&self, input: Self::Input) -> ParserResult<Self::Input, Self::Output, Self::Error> {
+    fn parse(&self, input: ParserInput<Self::Input>) -> ParserResult<Self::Input, Self::Output, Self::Error> {
         let mut result = Vec::new();
+        let (rest, output) = self.p.parse(input)?;
 
+        result.push(output);
 
-        self.p.parse(input)
-        .and_then(|(rest, output)|{
-            result.push(output);
-            Ok(self.parse_sep_start(rest, result))
-        })
+        let mut current_input = rest;
+
+        loop {
+            let out_res = 
+            self.separator.parse(current_input)
+            .map_err(|(input, error)|
+                (input, EitherError::LeftError(error))
+            )
+            .and_then(|(rest, _)|
+                self.p.parse(rest)
+                .map_err(|(input, error)| (input, EitherError::RightError(error)))
+            );
+
+            match out_res {
+                Ok((rest, output)) => {
+                    result.push(output);
+                    current_input = rest;
+                }
+
+                Err((input, EitherError::LeftError(_))) => return Ok((input, result)),
+                Err((input, EitherError::RightError(error))) =>
+                    return Err((input, error))
+            }
+        }
     }
 }

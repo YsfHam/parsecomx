@@ -5,7 +5,7 @@ fn main() {
         '['
         .then_parse(f32::str_parser())
         .then_consume(&']')
-        .parse("[1.0]")
+        .parse("[ff]".into())
     ;
     match result {
         Ok((rest, output)) => println!("rest \"{rest}\", output={output}"),
